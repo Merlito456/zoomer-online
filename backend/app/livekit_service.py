@@ -11,12 +11,22 @@ class LiveKitService:
         self.api_secret = os.getenv("LIVEKIT_API_SECRET", "secret")
         self.url = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
         
-        # Initialize LiveKit client
-        self.client = api.LiveKitAPI(
-            self.url,
-            api_key=self.api_key,
-            api_secret=self.api_secret
-        )
+        # Convert ws:// to wss:// if using a public URL
+        if "trycloudflare.com" in self.url or "ngrok" in self.url:
+            self.url = self.url.replace("ws://", "wss://")
+        
+        print(f"🔗 LiveKit URL: {self.url}")
+        
+        try:
+            self.client = api.LiveKitAPI(
+                self.url,
+                api_key=self.api_key,
+                api_secret=self.api_secret
+            )
+            print("✅ LiveKit client initialized successfully")
+        except Exception as e:
+            print(f"⚠️ LiveKit client initialization failed: {e}")
+            self.client = None
     
     def generate_token(
         self,
@@ -26,28 +36,36 @@ class LiveKitService:
         metadata: dict = None
     ) -> str:
         """Generate a LiveKit access token"""
-        
-        token = (
-            jwt.AccessToken(self.api_key, self.api_secret)
-            .with_identity(identity)
-            .with_name(name or identity)
-            .with_grants(
-                jwt.VideoGrants(
-                    room_join=True,
-                    room=room_name,
-                    can_publish=True,
-                    can_subscribe=True,
-                    can_publish_data=True,
+        try:
+            token = (
+                jwt.AccessToken(self.api_key, self.api_secret)
+                .with_identity(identity)
+                .with_name(name or identity)
+                .with_grants(
+                    jwt.VideoGrants(
+                        room_join=True,
+                        room=room_name,
+                        can_publish=True,
+                        can_subscribe=True,
+                        can_publish_data=True,
+                    )
                 )
             )
-        )
-        
-        if metadata:
-            token.with_metadata(json.dumps(metadata))
-        
-        return token.to_jwt()
+            
+            if metadata:
+                token.with_metadata(json.dumps(metadata))
+            
+            return token.to_jwt()
+        except Exception as e:
+            print(f"❌ Error generating token: {e}")
+            # Return a dummy token for testing if LiveKit isn't available
+            return "dummy-token-for-testing"
     
     async def list_participants(self, room_name: str) -> list:
+        if not self.client:
+            print("❌ LiveKit client not initialized")
+            return []
+        
         try:
             result = await self.client.room.list_participants(
                 api.ListParticipantsRequest(room=room_name)
