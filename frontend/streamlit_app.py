@@ -396,4 +396,68 @@ elif st.session_state.page == 'meeting':
         
         with col3:
             if st.button("🖥️ Share", use_container_width=True):
-                st.info
+                st.info("Share screen")
+        
+        with col4:
+            if st.button("💬 Chat", use_container_width=True):
+                st.info("Chat")
+        
+        with col5:
+            if st.button("🚪 Leave", use_container_width=True):
+                st.session_state.page = 'dashboard'
+                st.session_state.room_data = None
+                st.session_state.token = None
+                st.session_state.participant_id = None
+                st.rerun()
+        
+        # Meeting info
+        st.markdown("---")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 👥 Participants")
+            try:
+                participants = get_participants(room['meeting_id'])
+                if participants:
+                    for p in participants:
+                        st.markdown(f"""
+                            <div class="participant-info">
+                                <strong>{p['name']}</strong>
+                                <span style="color: #666; font-size: 0.8rem; margin-left: 0.5rem;">
+                                    {p['company']} • {p['position']}
+                                </span>
+                                <span style="float: right; font-size: 0.8rem;">
+                                    {'👑' if p['role'] == 'host' else '👤'}
+                                </span>
+                            </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No participants yet.")
+            except Exception as e:
+                st.error(f"Failed to load participants: {str(e)}")
+        
+        with col2:
+            st.markdown("### 📊 Meeting Info")
+            st.markdown(f"""
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px;">
+                    <p><strong>Meeting ID:</strong> {room['meeting_id']}</p>
+                    <p><strong>Host:</strong> {room['host_name']}</p>
+                    <p><strong>Created:</strong> {room['created_at'][:10]}</p>
+                    <p><strong>Participants:</strong> {len(participants) if participants else 0}</p>
+                </div>
+            """, unsafe_allow_html=True)
+        
+        # LiveKit connection info (hidden but important)
+        if st.session_state.token:
+            st.markdown("---")
+            st.markdown("### 🔗 Connection Details")
+            st.info("🔐 Securely connected to media server")
+            
+            # Show token info (debug)
+            with st.expander("Technical Details"):
+                st.code(f"""
+LiveKit Token: {st.session_state.token[:50]}...
+Participant ID: {st.session_state.participant_id}
+Meeting ID: {room['meeting_id']}
+                """, language="text")
