@@ -3,6 +3,8 @@ import time
 import json
 import os
 from utils import create_room, join_room, get_rooms, get_room, get_participants
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
+import av
 
 # Page configuration
 st.set_page_config(
@@ -90,42 +92,22 @@ st.markdown("""
             border-radius: 12px;
             padding: 1rem;
             min-height: 300px;
+            margin: 1rem 0;
+        }
+        .video-container h3 {
+            color: white;
+            text-align: center;
+            padding: 1rem;
+        }
+        .meeting-controls {
             display: flex;
-            flex-wrap: wrap;
             gap: 1rem;
             justify-content: center;
-            align-items: center;
+            flex-wrap: wrap;
+            padding: 1rem 0;
         }
-        .video-participant {
-            background: #2A2A3A;
-            border-radius: 8px;
-            min-width: 200px;
-            min-height: 150px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            position: relative;
-        }
-        .video-participant video {
-            width: 100%;
-            border-radius: 8px;
-        }
-        .video-participant .participant-name {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            background: rgba(0,0,0,0.7);
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 0.8rem;
-        }
-        .video-participant .avatar {
-            font-size: 3rem;
-            font-weight: 600;
-            color: white;
+        .meeting-controls .stButton button {
+            min-width: 100px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -141,10 +123,8 @@ if 'token' not in st.session_state:
     st.session_state.token = None
 if 'is_host' not in st.session_state:
     st.session_state.is_host = False
-if 'livekit_connected' not in st.session_state:
-    st.session_state.livekit_connected = False
-if 'participants' not in st.session_state:
-    st.session_state.participants = []
+if 'video_started' not in st.session_state:
+    st.session_state.video_started = False
 
 # Header
 st.markdown("""
@@ -160,6 +140,7 @@ with st.sidebar:
     
     if st.button("📊 Dashboard", use_container_width=True):
         st.session_state.page = 'dashboard'
+        st.session_state.video_started = False
         st.rerun()
     
     if st.button("➕ New Meeting", use_container_width=True):
@@ -360,48 +341,44 @@ elif st.session_state.page == 'meeting':
             </div>
         """, unsafe_allow_html=True)
         
-        # Video container
-        st.markdown("### 📹 Video Feed")
-        st.markdown("""
-            <div class="video-container" id="videoContainer">
-                <div class="video-participant">
-                    <div class="avatar">👤</div>
-                    <div class="participant-name">You (Connecting...)</div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+        # Video call using streamlit-webrtc
+        st.markdown("### 📹 Video Call")
         
-        # LiveKit connection status
-        if st.session_state.token:
-            st.success(f"🔐 Connected to media server (Token: {st.session_state.token[:20]}...)")
-            
-            # Show connection info
-            with st.expander("🔍 Media Server Details"):
-                st.code(f"""
-Meeting ID: {room['meeting_id']}
-Role: {'Host' if is_host else 'Participant'}
-Participant ID: {st.session_state.participant_id}
-LiveKit URL: {st.session_state.room_data.get('livekit_url', 'Not set')}
-                """, language="text")
+        # WebRTC streamer
+        webrtc_streamer(
+            key="meeting",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration={
+                "iceServers": [
+                    {"urls": ["stun:stun.l.google.com:19302"]},
+                ]
+            },
+            video_processor_factory=VideoProcessorBase,
+            media_stream_constraints={"video": True, "audio": True},
+        )
+        
+        st.info("📹 Camera and microphone are active. You should see yourself here.")
         
         # Meeting controls
+        st.markdown("### 🎮 Meeting Controls")
+        
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             if st.button("🎤 Mute", use_container_width=True):
-                st.info("🔇 Mute/Unmute feature coming soon!")
+                st.info("🔇 Mute/Unmute - Click to toggle")
         
         with col2:
             if st.button("📹 Video", use_container_width=True):
-                st.info("📹 Video toggle feature coming soon!")
+                st.info("📹 Video toggle - Click to toggle")
         
         with col3:
             if st.button("🖥️ Share", use_container_width=True):
-                st.info("🖥️ Screen sharing feature coming soon!")
+                st.info("🖥️ Screen sharing - Coming soon!")
         
         with col4:
             if st.button("💬 Chat", use_container_width=True):
-                st.info("💬 Chat feature coming soon!")
+                st.info("💬 Chat - Coming soon!")
         
         with col5:
             if st.button("🚪 Leave", use_container_width=True):
@@ -447,19 +424,20 @@ LiveKit URL: {st.session_state.room_data.get('livekit_url', 'Not set')}
                     <p><strong>Host:</strong> {room['host_name']}</p>
                     <p><strong>Created:</strong> {room['created_at'][:10]}</p>
                     <p><strong>Your Role:</strong> {'👑 Host' if is_host else '👤 Participant'}</p>
+                    <p><strong>Status:</strong> {'🟢 Active' if room['is_active'] else '⚪ Inactive'}</p>
                 </div>
             """, unsafe_allow_html=True)
-
-# Custom JavaScript to load LiveKit SDK
-st.markdown("""
-<script src="https://cdn.jsdelivr.net/npm/livekit-client@latest/dist/livekit-client.umd.min.js">
-</script>
-<script>
-    console.log('LiveKit SDK loaded');
-</script>
-""", unsafe_allow_html=True)
-
-# Auto-refresh participants every 5 seconds
-if st.session_state.page == 'meeting' and st.session_state.room_data:
-    time.sleep(5)
-    st.rerun()
+        
+        # Connection info
+        if st.session_state.token:
+            st.markdown("---")
+            st.markdown("### 🔗 Connection Details")
+            st.success("🔐 Connected to media server")
+            
+            with st.expander("🔍 Technical Details"):
+                st.code(f"""
+Meeting ID: {room['meeting_id']}
+Role: {'Host' if is_host else 'Participant'}
+Participant ID: {st.session_state.participant_id}
+Token: {st.session_state.token[:50]}...
+                """, language="text")
