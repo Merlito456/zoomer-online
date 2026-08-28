@@ -66,19 +66,6 @@ st.markdown("""
             background: #f5f5f5;
             color: #757575;
         }
-        .join-btn {
-            background: #0066FF;
-            color: white;
-            border: none;
-            padding: 0.5rem 1.5rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 500;
-            margin-top: 0.5rem;
-        }
-        .join-btn:hover {
-            background: #0052CC;
-        }
         .stButton > button {
             width: 100%;
             border-radius: 8px;
@@ -89,27 +76,6 @@ st.markdown("""
             padding: 1rem;
             border-radius: 8px;
             margin: 0.5rem 0;
-        }
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 1rem;
-            margin: 1rem 0;
-        }
-        .feature-item {
-            text-align: center;
-            padding: 1rem;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        }
-        .feature-item .icon {
-            font-size: 2rem;
-            margin-bottom: 0.3rem;
-        }
-        .feature-item .label {
-            font-size: 0.8rem;
-            color: #666;
         }
         .status-badge {
             display: inline-block;
@@ -158,6 +124,8 @@ if 'room_data' not in st.session_state:
     st.session_state.room_data = None
 if 'token' not in st.session_state:
     st.session_state.token = None
+if 'is_host' not in st.session_state:
+    st.session_state.is_host = False
 
 # Header
 st.markdown("""
@@ -239,8 +207,9 @@ if st.session_state.page == 'dashboard':
                     
                     with col3:
                         if st.button(f"Join {room['meeting_id'][:4]}", key=f"join_{room['id']}"):
-                            st.session_state.page = 'join_room'
                             st.session_state.room_data = room
+                            st.session_state.is_host = False  # Joining as participant
+                            st.session_state.page = 'join_room'
                             st.rerun()
         else:
             st.info("No meetings created yet. Create a new meeting to get started!")
@@ -276,8 +245,10 @@ elif st.session_state.page == 'create':
                         st.session_state.room_data = result['room']
                         st.session_state.token = result['token']
                         st.session_state.participant_id = result['participant_id']
+                        st.session_state.is_host = True  # This is the host
                         st.session_state.page = 'meeting'
                         st.success("Meeting created successfully!")
+                        st.balloons()
                         time.sleep(1)
                         st.rerun()
                 except Exception as e:
@@ -296,6 +267,7 @@ elif st.session_state.page == 'join':
                 room = get_room(meeting_id)
                 if room:
                     st.session_state.room_data = room
+                    st.session_state.is_host = False  # Joining as participant
                     st.session_state.page = 'join_room'
                     st.rerun()
                 else:
@@ -356,8 +328,10 @@ elif st.session_state.page == 'join_room':
                         )
                         st.session_state.token = result['token']
                         st.session_state.participant_id = result['participant_id']
+                        st.session_state.is_host = False  # Joining as participant
                         st.session_state.page = 'meeting'
                         st.success("Connected successfully!")
+                        st.balloons()
                         time.sleep(1)
                         st.rerun()
                 except Exception as e:
@@ -372,10 +346,14 @@ elif st.session_state.page == 'meeting':
             st.rerun()
     else:
         room = st.session_state.room_data
+        is_host = st.session_state.is_host
+        
+        # Show host badge if host
+        host_badge = " 👑 (Host)" if is_host else ""
         
         st.markdown(f"""
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h2>🎥 {room['name']}</h2>
+                <h2>🎥 {room['name']}{host_badge}</h2>
                 <div style="display: flex; gap: 1rem; align-items: center;">
                     <span style="font-size: 0.9rem; color: #666;">ID: {room['meeting_id']}</span>
                     <span class="status active">🟢 Live</span>
@@ -383,31 +361,39 @@ elif st.session_state.page == 'meeting':
             </div>
         """, unsafe_allow_html=True)
         
+        # Show a message for host
+        if is_host:
+            st.info(f"👑 You are the host of this meeting. Share the Meeting ID: **{room['meeting_id']}** with participants.")
+        else:
+            st.info(f"✅ You have joined the meeting as a participant.")
+        
         # Meeting controls
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             if st.button("🎤 Mute", use_container_width=True):
-                st.info("Toggle mute")
+                st.info("Toggle mute - Feature coming soon!")
         
         with col2:
             if st.button("📹 Video", use_container_width=True):
-                st.info("Toggle video")
+                st.info("Toggle video - Feature coming soon!")
         
         with col3:
             if st.button("🖥️ Share", use_container_width=True):
-                st.info("Share screen")
+                st.info("Screen sharing - Feature coming soon!")
         
         with col4:
             if st.button("💬 Chat", use_container_width=True):
-                st.info("Chat")
+                st.info("Chat - Feature coming soon!")
         
         with col5:
             if st.button("🚪 Leave", use_container_width=True):
+                # Reset everything
                 st.session_state.page = 'dashboard'
                 st.session_state.room_data = None
                 st.session_state.token = None
                 st.session_state.participant_id = None
+                st.session_state.is_host = False
                 st.rerun()
         
         # Meeting info
@@ -421,9 +407,10 @@ elif st.session_state.page == 'meeting':
                 participants = get_participants(room['meeting_id'])
                 if participants:
                     for p in participants:
+                        is_me = p['id'] == st.session_state.participant_id
                         st.markdown(f"""
                             <div class="participant-info">
-                                <strong>{p['name']}</strong>
+                                <strong>{p['name']}{' (You)' if is_me else ''}</strong>
                                 <span style="color: #666; font-size: 0.8rem; margin-left: 0.5rem;">
                                     {p['company']} • {p['position']}
                                 </span>
@@ -444,20 +431,21 @@ elif st.session_state.page == 'meeting':
                     <p><strong>Meeting ID:</strong> {room['meeting_id']}</p>
                     <p><strong>Host:</strong> {room['host_name']}</p>
                     <p><strong>Created:</strong> {room['created_at'][:10]}</p>
-                    <p><strong>Participants:</strong> {len(participants) if participants else 0}</p>
+                    <p><strong>Your Role:</strong> {'👑 Host' if is_host else '👤 Participant'}</p>
                 </div>
             """, unsafe_allow_html=True)
         
-        # LiveKit connection info (hidden but important)
+        # LiveKit connection info
         if st.session_state.token:
             st.markdown("---")
             st.markdown("### 🔗 Connection Details")
-            st.info("🔐 Securely connected to media server")
+            st.success("🔐 Securely connected to media server")
             
-            # Show token info (debug)
-            with st.expander("Technical Details"):
+            with st.expander("🔍 Technical Details"):
                 st.code(f"""
-LiveKit Token: {st.session_state.token[:50]}...
-Participant ID: {st.session_state.participant_id}
 Meeting ID: {room['meeting_id']}
+Role: {'Host' if is_host else 'Participant'}
+Participant ID: {st.session_state.participant_id}
+Token: {st.session_state.token[:50]}...
+LiveKit URL: {os.getenv('LIVEKIT_URL', 'Not set')}
                 """, language="text")
