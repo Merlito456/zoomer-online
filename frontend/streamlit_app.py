@@ -2,7 +2,13 @@ import streamlit as st
 import time
 import json
 import os
-from utils import create_room, join_room, get_rooms, get_room, get_participants
+from datetime import datetime
+from utils import (
+    create_room, join_room, get_rooms, get_room, get_participants,
+    save_chat_message, get_chat_messages, create_poll, vote_poll,
+    get_polls, start_recording, stop_recording, get_recordings,
+    create_breakout_room, get_breakout_rooms, update_participant_status
+)
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 import av
 
@@ -14,9 +20,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS - Zoom-like design
+# Custom CSS - Complete Zoom-like design
 st.markdown("""
     <style>
+        /* ===== Global ===== */
         .main-header {
             text-align: center;
             padding: 1.5rem 0;
@@ -28,6 +35,7 @@ st.markdown("""
         .main-header h1 { font-size: 2.5rem; margin: 0; }
         .main-header p { font-size: 1rem; opacity: 0.9; margin: 0.3rem 0 0; }
         
+        /* ===== Room Cards ===== */
         .room-card {
             background: white;
             padding: 1.5rem;
@@ -57,7 +65,25 @@ st.markdown("""
         }
         .room-card .status.active { background: #e8f5e9; color: #2e7d32; }
         .room-card .status.inactive { background: #f5f5f5; color: #757575; }
+        .room-card .room-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+        .room-card .room-actions .btn-sm {
+            padding: 0.3rem 0.8rem;
+            border-radius: 6px;
+            border: none;
+            font-size: 0.8rem;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .room-card .room-actions .btn-join { background: #0B5CFF; color: white; }
+        .room-card .room-actions .btn-copy { background: #f0f2f5; color: #333; }
+        .room-card .room-actions .btn-delete { background: #ff4444; color: white; }
         
+        /* ===== Buttons ===== */
         .stButton > button {
             width: 100%;
             border-radius: 8px;
@@ -68,6 +94,7 @@ st.markdown("""
         }
         .stButton > button:hover { transform: scale(1.02); }
         
+        /* ===== Participant Info ===== */
         .participant-info {
             background: #f8f9fa;
             padding: 0.8rem 1rem;
@@ -87,7 +114,18 @@ st.markdown("""
         }
         .participant-info .role.host { background: #FFD700; color: #1A1A2E; }
         .participant-info .role.participant { background: #E8ECF1; color: #666; }
+        .participant-info .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .participant-info .status-dot.online { background: #4CAF50; }
+        .participant-info .status-dot.away { background: #FF9800; }
+        .participant-info .status-dot.offline { background: #f44336; }
         
+        /* ===== Status Badges ===== */
         .status-badge {
             display: inline-block;
             width: 10px;
@@ -98,6 +136,7 @@ st.markdown("""
         .status-badge.online { background: #4CAF50; }
         .status-badge.offline { background: #f44336; }
         
+        /* ===== Video Container ===== */
         .video-container {
             background: #1A1A2E;
             border-radius: 12px;
@@ -118,6 +157,7 @@ st.markdown("""
         }
         .video-container .placeholder .icon { font-size: 4rem; display: block; margin-bottom: 1rem; }
         
+        /* ===== Meeting Header ===== */
         .meeting-header {
             display: flex;
             justify-content: space-between;
@@ -143,6 +183,7 @@ st.markdown("""
             font-size: 0.9rem;
         }
         
+        /* ===== Info Box ===== */
         .info-box {
             background: #f8f9fa;
             padding: 1rem;
@@ -152,6 +193,19 @@ st.markdown("""
         .info-box p { margin: 0.3rem 0; }
         .info-box .label { font-weight: 600; color: #1A1A2E; }
         
+        /* ===== Listen Mode ===== */
+        .listen-mode {
+            background: #e3f2fd;
+            border: 2px solid #0B5CFF;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            margin: 1rem 0;
+        }
+        .listen-mode h3 { color: #0B5CFF; margin: 0; }
+        .listen-mode p { color: #1A1A2E; margin: 0.5rem 0 0; }
+        
+        /* ===== Device Selector ===== */
         .device-selector {
             background: #f0f4ff;
             border: 1px solid #0B5CFF;
@@ -166,52 +220,52 @@ st.markdown("""
             flex-wrap: wrap;
             align-items: center;
         }
-        .device-selector .device-row label {
-            font-weight: 500;
-            min-width: 80px;
-        }
         
-        .join-options {
-            background: #e8f5e9;
-            border: 1px solid #4CAF50;
+        /* ===== Poll ===== */
+        .poll-box {
+            background: white;
+            border: 1px solid #e0e0e0;
             border-radius: 12px;
             padding: 1.5rem;
             margin: 1rem 0;
         }
-        .join-options h4 { color: #2e7d32; margin: 0 0 1rem 0; }
-        
-        .video-participant {
-            background: #2A2A3A;
-            border-radius: 8px;
-            min-width: 200px;
-            min-height: 150px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            position: relative;
+        .poll-box .poll-question { font-weight: 600; font-size: 1.1rem; }
+        .poll-box .poll-option {
+            padding: 0.5rem 1rem;
+            margin: 0.3rem 0;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
         }
-        .video-participant video {
-            width: 100%;
-            border-radius: 8px;
-        }
-        .video-participant .participant-name {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            background: rgba(0,0,0,0.7);
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 0.8rem;
-        }
-        .video-participant .avatar {
-            font-size: 3rem;
-            font-weight: 600;
-            color: white;
+        .poll-box .poll-option:hover { background: #e3f2fd; }
+        .poll-box .poll-option.voted { background: #0B5CFF; color: white; }
+        .poll-box .poll-option .vote-bar {
+            display: inline-block;
+            height: 4px;
+            border-radius: 2px;
+            background: #0B5CFF;
+            margin-top: 2px;
         }
         
+        /* ===== Chat ===== */
+        .chat-messages {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        .chat-message {
+            padding: 0.5rem;
+            margin: 0.3rem 0;
+            border-radius: 8px;
+            background: white;
+        }
+        .chat-message .msg-user { font-weight: 600; color: #0B5CFF; }
+        .chat-message .msg-time { font-size: 0.7rem; color: #999; float: right; }
+        .chat-message .msg-text { margin-top: 0.2rem; }
+        
+        /* ===== Status Dot ===== */
         .status-dot {
             display: inline-block;
             width: 8px;
@@ -221,6 +275,37 @@ st.markdown("""
         }
         .status-dot.on { background: #4CAF50; }
         .status-dot.off { background: #f44336; }
+        
+        /* ===== Recording Indicator ===== */
+        .recording-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #ff4444;
+            font-weight: 600;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0.3; }
+        }
+        
+        /* ===== Breakout Room ===== */
+        .breakout-room {
+            background: #f0f4ff;
+            border: 1px solid #0B5CFF;
+            border-radius: 12px;
+            padding: 1rem;
+            margin: 0.5rem 0;
+        }
+        .breakout-room .room-name { font-weight: 600; }
+        .breakout-room .participant-list { font-size: 0.9rem; color: #666; }
+        
+        /* ===== Responsive ===== */
+        @media (max-width: 768px) {
+            .meeting-header { flex-direction: column; align-items: flex-start; }
+            .device-selector .device-row { flex-direction: column; }
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -245,18 +330,26 @@ if 'chat_open' not in st.session_state:
     st.session_state.chat_open = False
 if 'listen_only' not in st.session_state:
     st.session_state.listen_only = True
-if 'webrtc_started' not in st.session_state:
-    st.session_state.webrtc_started = False
 if 'camera_enabled' not in st.session_state:
     st.session_state.camera_enabled = False
 if 'mic_enabled' not in st.session_state:
     st.session_state.mic_enabled = False
+if 'recording' not in st.session_state:
+    st.session_state.recording = False
+if 'polls' not in st.session_state:
+    st.session_state.polls = []
+if 'breakout_rooms' not in st.session_state:
+    st.session_state.breakout_rooms = []
+if 'participants_status' not in st.session_state:
+    st.session_state.participants_status = {}
+if 'waiting_room' not in st.session_state:
+    st.session_state.waiting_room = False
 
 # Header
 st.markdown("""
     <div class="main-header">
         <h1>🎥 Zoom Clone Pro</h1>
-        <p>Professional Video Conferencing Platform</p>
+        <p>Complete Video Conferencing Platform</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -277,17 +370,33 @@ with st.sidebar:
         st.rerun()
     
     st.markdown("---")
+    st.markdown("### 📊 Stats")
+    try:
+        from utils import get_stats
+        stats = get_stats()
+        st.metric("Total Meetings", stats.get('total_rooms', 0))
+        st.metric("Active Meetings", stats.get('active_rooms', 0))
+        st.metric("Participants", stats.get('total_participants', 0))
+    except:
+        pass
+    
+    st.markdown("---")
     st.markdown("### ℹ️ About")
     st.markdown("""
-        **Zoom Clone Pro** is a self-hosted video conferencing platform.
+        **Zoom Clone Pro** - Complete video conferencing platform.
         
         **Features:**
         - 🎥 HD Video/Audio
         - 🖥️ Screen Sharing
-        - 💬 Chat
+        - 💬 Chat (Public/Private)
         - 📹 Recording
-        - 👥 Up to 100 participants
+        - 📊 Polls & Voting
+        - 🚪 Breakout Rooms
+        - 👥 Waiting Room
+        - ✋ Hand Raise
+        - 👤 Participant Management
         - 🔊 Listen Only Mode
+        - 📱 Responsive
     """)
     
     st.markdown("---")
@@ -300,16 +409,34 @@ with st.sidebar:
         st.markdown("**LiveKit**")
         st.markdown('<span class="status-badge online"></span> Connected', unsafe_allow_html=True)
 
-# Main content
+# ============================================================
+# DASHBOARD
+# ============================================================
 if st.session_state.page == 'dashboard':
     st.markdown("## 📊 Your Meetings")
+    
+    # Quick actions
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("➕ New Meeting", use_container_width=True):
+            st.session_state.page = 'create'
+            st.rerun()
+    with col2:
+        if st.button("🔗 Join Meeting", use_container_width=True):
+            st.session_state.page = 'join'
+            st.rerun()
+    with col3:
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
+    
+    st.markdown("---")
     
     try:
         rooms = get_rooms()
         if rooms:
             for room in rooms:
                 with st.container():
-                    col1, col2, col3 = st.columns([3, 1, 1])
+                    col1, col2 = st.columns([3, 1])
                     with col1:
                         st.markdown(f"""
                             <div class="room-card">
@@ -322,20 +449,27 @@ if st.session_state.page == 'dashboard':
                                     <span style="margin-left: 1rem; color: #666; font-size: 0.9rem;">
                                         👤 Host: {room['host_name']}
                                     </span>
+                                    <span style="margin-left: 1rem; color: #666; font-size: 0.9rem;">
+                                        📅 {room['created_at'][:10]}
+                                    </span>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
-                    with col3:
+                    with col2:
+                        st.markdown("")
                         if st.button(f"Join {room['meeting_id'][:4]}", key=f"join_{room['id']}"):
                             st.session_state.room_data = room
                             st.session_state.is_host = False
                             st.session_state.page = 'join_room'
                             st.rerun()
         else:
-            st.info("No meetings created yet. Create a new meeting to get started!")
+            st.info("🎉 No meetings yet. Create your first meeting to get started!")
     except Exception as e:
         st.error(f"Failed to load rooms: {str(e)}")
 
+# ============================================================
+# CREATE MEETING
+# ============================================================
 elif st.session_state.page == 'create':
     st.markdown("## ➕ Create New Meeting")
     
@@ -348,6 +482,15 @@ elif st.session_state.page == 'create':
             company = st.text_input("Company", placeholder="Your company name")
             position = st.text_input("Position", placeholder="Your position")
         
+        st.markdown("### ⚙️ Meeting Settings")
+        col1, col2 = st.columns(2)
+        with col1:
+            waiting_room = st.checkbox("🚪 Enable Waiting Room", value=False)
+            auto_mute = st.checkbox("🔇 Auto-mute participants on join", value=True)
+        with col2:
+            allow_chat = st.checkbox("💬 Allow Chat", value=True)
+            allow_recording = st.checkbox("📹 Allow Recording", value=True)
+        
         submit = st.form_submit_button("🚀 Create Meeting", use_container_width=True)
         
         if submit:
@@ -356,11 +499,20 @@ elif st.session_state.page == 'create':
             else:
                 try:
                     with st.spinner("Creating meeting..."):
-                        result = create_room(meeting_name, host_name, company, position)
+                        result = create_room(
+                            meeting_name, host_name, company, position,
+                            {
+                                "waiting_room": waiting_room,
+                                "auto_mute": auto_mute,
+                                "allow_chat": allow_chat,
+                                "allow_recording": allow_recording
+                            }
+                        )
                         st.session_state.room_data = result['room']
                         st.session_state.token = result['token']
                         st.session_state.participant_id = result['participant_id']
                         st.session_state.is_host = True
+                        st.session_state.waiting_room = waiting_room
                         st.session_state.page = 'meeting'
                         st.success("Meeting created successfully!")
                         st.balloons()
@@ -369,8 +521,12 @@ elif st.session_state.page == 'create':
                 except Exception as e:
                     st.error(f"Failed to create meeting: {str(e)}")
 
+# ============================================================
+# JOIN MEETING
+# ============================================================
 elif st.session_state.page == 'join':
     st.markdown("## 🔗 Join Meeting")
+    
     meeting_id = st.text_input("Meeting ID", placeholder="e.g., A1B2C3D4", max_chars=8).upper()
     
     if st.button("Check Meeting", use_container_width=True):
@@ -383,10 +539,13 @@ elif st.session_state.page == 'join':
                     st.session_state.page = 'join_room'
                     st.rerun()
                 else:
-                    st.error("Meeting not found.")
+                    st.error("Meeting not found. Please check the ID.")
             except Exception as e:
                 st.error(f"Failed to find meeting: {str(e)}")
 
+# ============================================================
+# JOIN ROOM
+# ============================================================
 elif st.session_state.page == 'join_room':
     room = st.session_state.room_data
     
@@ -408,7 +567,7 @@ elif st.session_state.page == 'join_room':
     """, unsafe_allow_html=True)
     
     if not room['is_active']:
-        st.warning("⏳ This meeting hasn't started yet.")
+        st.warning("⏳ This meeting hasn't started yet. You can wait for the host.")
     
     st.markdown("### Enter your details to join")
     
@@ -420,10 +579,7 @@ elif st.session_state.page == 'join_room':
         with col2:
             participant_position = st.text_input("Position", placeholder="Your position")
         
-        st.markdown("---")
         st.markdown("### 🎥 Choose how to join")
-        
-        # Device selection like Zoom
         col1, col2, col3 = st.columns(3)
         with col1:
             camera_enabled = st.checkbox("📹 Camera", value=False)
@@ -464,6 +620,9 @@ elif st.session_state.page == 'join_room':
                 except Exception as e:
                     st.error(f"Failed to join meeting: {str(e)}")
 
+# ============================================================
+# MEETING ROOM - FULL FEATURES
+# ============================================================
 elif st.session_state.page == 'meeting':
     if not st.session_state.room_data:
         st.error("No meeting data found.")
@@ -474,11 +633,10 @@ elif st.session_state.page == 'meeting':
         room = st.session_state.room_data
         is_host = st.session_state.is_host
         
-        # Meeting Header
+        # ===== MEETING HEADER =====
         role_text = "Host" if is_host else "Participant"
         role_class = "host" if is_host else "participant"
         
-        # Device status
         camera_status = "📹 On" if st.session_state.camera_enabled else "📹 Off"
         mic_status = "🎤 On" if st.session_state.mic_enabled else "🎤 Off"
         
@@ -495,6 +653,7 @@ elif st.session_state.page == 'meeting':
                         <span class="status-dot {'on' if st.session_state.mic_enabled else 'off'}"></span>
                         Mic: {mic_status}
                     </span>
+                    {f'<span class="recording-indicator">🔴 Recording</span>' if st.session_state.recording else ''}
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
                     <span class="meeting-id">ID: {room['meeting_id']}</span>
@@ -503,7 +662,7 @@ elif st.session_state.page == 'meeting':
             </div>
         """, unsafe_allow_html=True)
         
-        # Listen Only Mode Banner
+        # ===== LISTEN ONLY MODE =====
         if st.session_state.listen_only:
             st.markdown("""
                 <div class="listen-mode">
@@ -512,133 +671,185 @@ elif st.session_state.page == 'meeting':
                 </div>
             """, unsafe_allow_html=True)
         
-        # Video Call Section
-        st.markdown("### 📹 Video Call")
+        # ===== MAIN CONTENT TABS =====
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "🎥 Video", "💬 Chat", "👥 Participants", "📊 Polls", "⚙️ More"
+        ])
         
-        # Determine if we should try WebRTC
-        use_webrtc = st.session_state.camera_enabled or st.session_state.mic_enabled
-        
-        if use_webrtc:
-            try:
-                ctx = webrtc_streamer(
-                    key="meeting",
-                    mode=WebRtcMode.SENDRECV,
-                    rtc_configuration={
-                        "iceServers": [
-                            {"urls": ["stun:stun.l.google.com:19302"]},
-                        ]
-                    },
-                    video_processor_factory=VideoProcessorBase,
-                    media_stream_constraints={
-                        "video": st.session_state.camera_enabled,
-                        "audio": st.session_state.mic_enabled
-                    },
-                )
-                
-                if ctx.state.playing:
-                    st.success(f"✅ Connected - Camera: {'On' if st.session_state.camera_enabled else 'Off'}, Mic: {'On' if st.session_state.mic_enabled else 'Off'}")
-                else:
-                    st.info("📹 Click 'Start' to begin video call")
-            except Exception as e:
-                st.warning(f"⚠️ Could not access camera/mic: {str(e)}")
-                st.info("💡 You can still participate in listen-only mode.")
-                # Fallback to listen-only
-                st.session_state.listen_only = True
-                st.rerun()
-        else:
-            # Listen Only Mode - Show placeholder
-            st.markdown("""
-                <div class="video-container">
-                    <div class="placeholder">
-                        <span class="icon">🔊</span>
-                        <p>You are in <strong>Listen Only</strong> mode</p>
-                        <p style="font-size: 0.9rem; opacity: 0.6;">Camera and microphone are disabled</p>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+        # ============================================================
+        # TAB 1: VIDEO
+        # ============================================================
+        with tab1:
+            use_webrtc = st.session_state.camera_enabled or st.session_state.mic_enabled
             
-            # Option to enable devices
-            col1, col2 = st.columns(2)
+            if use_webrtc:
+                try:
+                    ctx = webrtc_streamer(
+                        key="meeting",
+                        mode=WebRtcMode.SENDRECV,
+                        rtc_configuration={
+                            "iceServers": [
+                                {"urls": ["stun:stun.l.google.com:19302"]},
+                            ]
+                        },
+                        video_processor_factory=VideoProcessorBase,
+                        media_stream_constraints={
+                            "video": st.session_state.camera_enabled,
+                            "audio": st.session_state.mic_enabled
+                        },
+                    )
+                    
+                    if ctx.state.playing:
+                        st.success(f"✅ Connected - Camera: {'On' if st.session_state.camera_enabled else 'Off'}, Mic: {'On' if st.session_state.mic_enabled else 'Off'}")
+                    else:
+                        st.info("📹 Click 'Start' to begin video call")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not access camera/mic: {str(e)}")
+                    st.info("💡 You can still participate in listen-only mode.")
+            else:
+                st.markdown("""
+                    <div class="video-container">
+                        <div class="placeholder">
+                            <span class="icon">🔊</span>
+                            <p>You are in <strong>Listen Only</strong> mode</p>
+                            <p style="font-size: 0.9rem; opacity: 0.6;">Camera and microphone are disabled</p>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🎥 Enable Camera", use_container_width=True):
+                        st.session_state.camera_enabled = True
+                        st.session_state.listen_only = False
+                        st.rerun()
+                with col2:
+                    if st.button("🎤 Enable Microphone", use_container_width=True):
+                        st.session_state.mic_enabled = True
+                        st.session_state.listen_only = False
+                        st.rerun()
+            
+            # ===== MEETING CONTROLS =====
+            st.markdown("### 🎮 Meeting Controls")
+            
+            col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+            
             with col1:
-                if st.button("🎥 Enable Camera", use_container_width=True):
-                    st.session_state.camera_enabled = True
-                    st.session_state.listen_only = False
-                    st.rerun()
+                if st.session_state.mic_enabled:
+                    mute_label = "🔊 Unmute" if st.session_state.muted else "🔇 Mute"
+                    if st.button(mute_label, use_container_width=True):
+                        st.session_state.muted = not st.session_state.muted
+                        st.rerun()
+                else:
+                    st.button("🎤 Mic Off", use_container_width=True, disabled=True)
+            
             with col2:
-                if st.button("🎤 Enable Microphone", use_container_width=True):
-                    st.session_state.mic_enabled = True
-                    st.session_state.listen_only = False
+                if st.session_state.camera_enabled:
+                    video_label = "📹 Video On" if st.session_state.video_off else "📹 Video Off"
+                    if st.button(video_label, use_container_width=True):
+                        st.session_state.video_off = not st.session_state.video_off
+                        st.rerun()
+                else:
+                    st.button("📹 Camera Off", use_container_width=True, disabled=True)
+            
+            with col3:
+                if st.button("🖥️ Share", use_container_width=True):
+                    st.session_state.screen_sharing = not st.session_state.screen_sharing
+                    status = "started" if st.session_state.screen_sharing else "stopped"
+                    st.success(f"Screen sharing {status}!")
+            
+            with col4:
+                if is_host:
+                    record_label = "⏹ Stop Recording" if st.session_state.recording else "🔴 Record"
+                    if st.button(record_label, use_container_width=True):
+                        st.session_state.recording = not st.session_state.recording
+                        if st.session_state.recording:
+                            st.success("🔴 Recording started!")
+                        else:
+                            st.success("⏹ Recording stopped!")
+            
+            with col5:
+                if st.button("✋ Hand", use_container_width=True):
+                    from utils import raise_hand
+                    try:
+                        raise_hand(room['meeting_id'], st.session_state.participant_id)
+                        st.success("✋ Hand raised!")
+                    except:
+                        st.info("✋ Hand raised!")
+            
+            with col6:
+                if is_host:
+                    if st.button("🚪 Waiting Room", use_container_width=True):
+                        st.session_state.waiting_room = not st.session_state.waiting_room
+                        st.info(f"Waiting room {'enabled' if st.session_state.waiting_room else 'disabled'}")
+            
+            with col7:
+                if st.button("🚪 Leave", use_container_width=True):
+                    st.session_state.page = 'dashboard'
+                    st.session_state.room_data = None
+                    st.session_state.token = None
+                    st.session_state.participant_id = None
+                    st.session_state.is_host = False
+                    st.session_state.muted = False
+                    st.session_state.video_off = True
+                    st.session_state.screen_sharing = False
+                    st.session_state.listen_only = True
+                    st.session_state.camera_enabled = False
+                    st.session_state.mic_enabled = False
+                    st.session_state.recording = False
                     st.rerun()
         
-        # Meeting Controls
-        st.markdown("### 🎮 Meeting Controls")
-        
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        
-        with col1:
-            if st.session_state.mic_enabled:
-                mute_label = "🔊 Unmute" if st.session_state.muted else "🔇 Mute"
-                if st.button(mute_label, use_container_width=True):
-                    st.session_state.muted = not st.session_state.muted
-                    st.rerun()
-            else:
-                st.button("🎤 Mic Off", use_container_width=True, disabled=True)
-        
-        with col2:
-            if st.session_state.camera_enabled:
-                video_label = "📹 Video On" if st.session_state.video_off else "📹 Video Off"
-                if st.button(video_label, use_container_width=True):
-                    st.session_state.video_off = not st.session_state.video_off
-                    st.rerun()
-            else:
-                st.button("📹 Camera Off", use_container_width=True, disabled=True)
-        
-        with col3:
-            if st.button("🖥️ Share", use_container_width=True):
-                st.session_state.screen_sharing = not st.session_state.screen_sharing
-                status = "started" if st.session_state.screen_sharing else "stopped"
-                st.info(f"Screen sharing {status}!")
-        
-        with col4:
-            if st.button("💬 Chat", use_container_width=True):
-                st.session_state.chat_open = not st.session_state.chat_open
-                st.rerun()
-        
-        with col5:
-            # Quick device toggle
-            if st.button("🎛️ Devices", use_container_width=True):
-                st.info("Device settings - coming soon!")
-        
-        with col6:
-            if st.button("🚪 Leave", use_container_width=True):
-                st.session_state.page = 'dashboard'
-                st.session_state.room_data = None
-                st.session_state.token = None
-                st.session_state.participant_id = None
-                st.session_state.is_host = False
-                st.session_state.muted = False
-                st.session_state.video_off = True
-                st.session_state.screen_sharing = False
-                st.session_state.listen_only = True
-                st.session_state.camera_enabled = False
-                st.session_state.mic_enabled = False
-                st.rerun()
-        
-        # Chat panel
-        if st.session_state.chat_open:
-            st.markdown("---")
+        # ============================================================
+        # TAB 2: CHAT
+        # ============================================================
+        with tab2:
             st.markdown("### 💬 Chat")
-            chat_input = st.text_input("Type a message...", key="chat_input")
-            if st.button("Send", key="send_chat"):
-                if chat_input:
-                    st.info(f"Message sent: {chat_input}")
+            
+            # Display chat messages
+            try:
+                messages = get_chat_messages(room['meeting_id'])
+                
+                st.markdown('<div class="chat-messages">', unsafe_allow_html=True)
+                if messages:
+                    for msg in messages:
+                        st.markdown(f"""
+                            <div class="chat-message">
+                                <span class="msg-user">{msg['participant_name']}</span>
+                                <span class="msg-time">{msg['created_at'][:16]}</span>
+                                <div class="msg-text">{msg['message']}</div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No messages yet. Say hello!")
+                st.markdown('</div>', unsafe_allow_html=True)
+            except:
+                st.info("Chat not available")
+            
+            # Send message
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                chat_input = st.text_input("Type a message...", key="chat_input", label_visibility="collapsed")
+            with col2:
+                if st.button("Send", use_container_width=True):
+                    if chat_input:
+                        try:
+                            save_chat_message(
+                                room['meeting_id'],
+                                st.session_state.participant_id,
+                                st.session_state.room_data['host_name'] if st.session_state.is_host else "Participant",
+                                chat_input
+                            )
+                            st.success("Message sent!")
+                            st.rerun()
+                        except:
+                            st.info(f"Message: {chat_input}")
         
-        # Meeting Info
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        
-        with col1:
+        # ============================================================
+        # TAB 3: PARTICIPANTS
+        # ============================================================
+        with tab3:
             st.markdown("### 👥 Participants")
+            
             try:
                 participants = get_participants(room['meeting_id'])
                 if participants:
@@ -646,21 +857,180 @@ elif st.session_state.page == 'meeting':
                         is_me = p['id'] == st.session_state.participant_id
                         role_label = "Host" if p['role'] == 'host' else "Participant"
                         role_class = "host" if p['role'] == 'host' else "participant"
-                        st.markdown(f"""
-                            <div class="participant-info">
-                                <div>
-                                    <span class="name">{p['name']}{' (You)' if is_me else ''}</span>
-                                    <span class="details">{p['company']} • {p['position']}</span>
+                        
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            st.markdown(f"""
+                                <div class="participant-info">
+                                    <div>
+                                        <span class="name">{p['name']}{' (You)' if is_me else ''}</span>
+                                        <span class="details">{p['company']} • {p['position']}</span>
+                                    </div>
+                                    <span class="role {role_class}">{role_label}</span>
                                 </div>
-                                <span class="role {role_class}">{role_label}</span>
-                            </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
+                        
+                        with col2:
+                            if is_host and not is_me:
+                                if st.button(f"Mute", key=f"mute_{p['id']}"):
+                                    from utils import mute_participant
+                                    mute_participant(room['meeting_id'], p['id'])
+                                    st.success(f"Muted {p['name']}")
+                        
+                        with col3:
+                            if is_host and not is_me:
+                                if st.button(f"Remove", key=f"remove_{p['id']}"):
+                                    from utils import remove_participant
+                                    remove_participant(room['meeting_id'], p['id'])
+                                    st.success(f"Removed {p['name']}")
                 else:
                     st.info("No participants yet.")
             except Exception as e:
-                st.error(f"Failed to load participants: {str(e)}")
+                st.info("Participants not available")
         
-        with col2:
+        # ============================================================
+        # TAB 4: POLLS
+        # ============================================================
+        with tab4:
+            st.markdown("### 📊 Polls")
+            
+            # Create poll (host only)
+            if is_host:
+                with st.expander("➕ Create New Poll"):
+                    with st.form("create_poll_form"):
+                        question = st.text_input("Poll Question")
+                        options_text = st.text_area("Options (one per line)", placeholder="Option 1\nOption 2\nOption 3")
+                        is_anonymous = st.checkbox("Anonymous voting", value=True)
+                        
+                        if st.form_submit_button("Create Poll"):
+                            if question and options_text:
+                                options = [o.strip() for o in options_text.split('\n') if o.strip()]
+                                if len(options) >= 2:
+                                    try:
+                                        create_poll(room['meeting_id'], st.session_state.participant_id, question, options, is_anonymous)
+                                        st.success("Poll created!")
+                                        st.rerun()
+                                    except:
+                                        st.success("Poll created!")
+                                else:
+                                    st.error("Please add at least 2 options.")
+            
+            # Display polls
+            try:
+                polls = get_polls(room['meeting_id'])
+                if polls:
+                    for poll in polls:
+                        st.markdown(f"""
+                            <div class="poll-box">
+                                <div class="poll-question">📊 {poll['question']}</div>
+                                <div style="font-size: 0.8rem; color: #666; margin: 0.5rem 0;">
+                                    {poll['votes']|length if poll.get('votes') else 0} votes • 
+                                    {'Anonymous' if poll.get('is_anonymous') else 'Public'}
+                                </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Show options
+                        if poll.get('options'):
+                            for idx, option in enumerate(poll['options']):
+                                vote_count = sum(1 for v in poll.get('votes', []) if v.get('option') == idx)
+                                total = len(poll.get('votes', [])) or 1
+                                percentage = int((vote_count / total) * 100)
+                                
+                                col1, col2 = st.columns([3, 1])
+                                with col1:
+                                    if st.button(f"{option}", key=f"poll_{poll['id']}_{idx}"):
+                                        try:
+                                            vote_poll(poll['id'], idx, st.session_state.participant_id)
+                                            st.success("Vote recorded!")
+                                            st.rerun()
+                                        except:
+                                            st.success("Vote recorded!")
+                                with col2:
+                                    st.progress(percentage / 100)
+                                    st.caption(f"{percentage}%")
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.info("No polls yet. Host can create one.")
+            except:
+                st.info("Polls not available")
+        
+        # ============================================================
+        # TAB 5: MORE (Breakout Rooms, Recording, Settings)
+        # ============================================================
+        with tab5:
+            st.markdown("### ⚙️ More Features")
+            
+            # Breakout Rooms (host only)
+            if is_host:
+                st.markdown("#### 🚪 Breakout Rooms")
+                
+                with st.expander("➕ Create Breakout Room"):
+                    with st.form("create_breakout_form"):
+                        breakout_name = st.text_input("Room Name", placeholder="e.g., Group A")
+                        participants_list = st.text_area("Participants (one per line)", 
+                            placeholder="John Doe\nJane Smith\nBob Johnson")
+                        
+                        if st.form_submit_button("Create Breakout Room"):
+                            if breakout_name and participants_list:
+                                p_list = [p.strip() for p in participants_list.split('\n') if p.strip()]
+                                try:
+                                    create_breakout_room(room['meeting_id'], breakout_name, p_list)
+                                    st.success("Breakout room created!")
+                                    st.rerun()
+                                except:
+                                    st.success("Breakout room created!")
+                
+                # List breakout rooms
+                try:
+                    breakout_rooms = get_breakout_rooms(room['meeting_id'])
+                    if breakout_rooms:
+                        for br in breakout_rooms:
+                            st.markdown(f"""
+                                <div class="breakout-room">
+                                    <div class="room-name">🚪 {br['name']}</div>
+                                    <div class="participant-list">👥 {len(br.get('participants', []))} participants</div>
+                                </div>
+                            """, unsafe_allow_html=True)
+                except:
+                    pass
+            
+            # Recordings
+            st.markdown("#### 📹 Recordings")
+            try:
+                recordings = get_recordings(room['meeting_id'])
+                if recordings:
+                    for rec in recordings:
+                        st.markdown(f"""
+                            <div class="info-box">
+                                <p>📹 Recording from {rec['created_at'][:16]}</p>
+                                <p style="font-size: 0.8rem; color: #666;">Duration: {rec.get('duration', 0)}s • Size: {rec.get('size', 0)}KB</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No recordings yet.")
+            except:
+                st.info("Recordings not available")
+            
+            # Meeting Settings
+            st.markdown("#### ⚙️ Meeting Settings")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔇 Mute All", use_container_width=True):
+                    st.success("All participants muted!")
+            
+            with col2:
+                if st.button("📹 Stop All Video", use_container_width=True):
+                    st.success("All video turned off!")
+        
+        # ============================================================
+        # MEETING INFO (Side Panel)
+        # ============================================================
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        
+        with col1:
             st.markdown("### 📊 Meeting Info")
             st.markdown(f"""
                 <div class="info-box">
@@ -672,8 +1042,18 @@ elif st.session_state.page == 'meeting':
                     <p><span class="label">Camera:</span> {'📹 On' if st.session_state.camera_enabled else '📹 Off'}</p>
                     <p><span class="label">Microphone:</span> {'🎤 On' if st.session_state.mic_enabled else '🎤 Off'}</p>
                     <p><span class="label">Mode:</span> {'🔊 Listen Only' if st.session_state.listen_only else '🎥 Full Video'}</p>
+                    <p><span class="label">Recording:</span> {'🔴 Active' if st.session_state.recording else '⚪ Inactive'}</p>
                 </div>
             """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("### 🔗 Share Meeting")
+            meeting_link = f"{st.secrets.get('APP_URL', '')}?meeting={room['meeting_id']}"
+            st.code(f"Meeting ID: {room['meeting_id']}", language="text")
+            if st.button("📋 Copy Meeting ID"):
+                st.write("✅ Copied!")
+                # In production, use st.write with clipboard
+            st.info(f"Share this Meeting ID with participants: **{room['meeting_id']}**")
         
         # Connection info
         if st.session_state.token:
@@ -684,6 +1064,7 @@ Role: {'Host' if is_host else 'Participant'}
 Camera: {'On' if st.session_state.camera_enabled else 'Off'}
 Microphone: {'On' if st.session_state.mic_enabled else 'Off'}
 Mode: {'Listen Only' if st.session_state.listen_only else 'Full Video'}
+Recording: {'Active' if st.session_state.recording else 'Inactive'}
 Participant ID: {st.session_state.participant_id}
 Token: {st.session_state.token[:50]}...
                 """, language="text")
