@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import json
+import os
 from utils import create_room, join_room, get_rooms, get_room, get_participants
 
 # Page configuration
@@ -110,6 +111,24 @@ st.markdown("""
             color: #aaa;
             font-size: 1rem;
         }
+        .host-badge {
+            background: #FFD700;
+            color: #1A1A2E;
+            padding: 0.2rem 0.8rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .participant-badge {
+            background: #E8ECF1;
+            color: #1A1A2E;
+            padding: 0.2rem 0.8rem;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -208,7 +227,7 @@ if st.session_state.page == 'dashboard':
                     with col3:
                         if st.button(f"Join {room['meeting_id'][:4]}", key=f"join_{room['id']}"):
                             st.session_state.room_data = room
-                            st.session_state.is_host = False  # Joining as participant
+                            st.session_state.is_host = False
                             st.session_state.page = 'join_room'
                             st.rerun()
         else:
@@ -245,9 +264,9 @@ elif st.session_state.page == 'create':
                         st.session_state.room_data = result['room']
                         st.session_state.token = result['token']
                         st.session_state.participant_id = result['participant_id']
-                        st.session_state.is_host = True  # This is the host
+                        st.session_state.is_host = True
                         st.session_state.page = 'meeting'
-                        st.success("Meeting created successfully!")
+                        st.success("Meeting created successfully! You are the host.")
                         st.balloons()
                         time.sleep(1)
                         st.rerun()
@@ -267,7 +286,7 @@ elif st.session_state.page == 'join':
                 room = get_room(meeting_id)
                 if room:
                     st.session_state.room_data = room
-                    st.session_state.is_host = False  # Joining as participant
+                    st.session_state.is_host = False
                     st.session_state.page = 'join_room'
                     st.rerun()
                 else:
@@ -328,9 +347,9 @@ elif st.session_state.page == 'join_room':
                         )
                         st.session_state.token = result['token']
                         st.session_state.participant_id = result['participant_id']
-                        st.session_state.is_host = False  # Joining as participant
+                        st.session_state.is_host = False
                         st.session_state.page = 'meeting'
-                        st.success("Connected successfully!")
+                        st.success("Connected successfully! You are a participant.")
                         st.balloons()
                         time.sleep(1)
                         st.rerun()
@@ -348,12 +367,12 @@ elif st.session_state.page == 'meeting':
         room = st.session_state.room_data
         is_host = st.session_state.is_host
         
-        # Show host badge if host
-        host_badge = " 👑 (Host)" if is_host else ""
+        # Role badge
+        role_badge = '<span class="host-badge">👑 Host</span>' if is_host else '<span class="participant-badge">👤 Participant</span>'
         
         st.markdown(f"""
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                <h2>🎥 {room['name']}{host_badge}</h2>
+                <h2>🎥 {room['name']} {role_badge}</h2>
                 <div style="display: flex; gap: 1rem; align-items: center;">
                     <span style="font-size: 0.9rem; color: #666;">ID: {room['meeting_id']}</span>
                     <span class="status active">🟢 Live</span>
@@ -361,30 +380,30 @@ elif st.session_state.page == 'meeting':
             </div>
         """, unsafe_allow_html=True)
         
-        # Show a message for host
+        # Show role-specific message
         if is_host:
-            st.info(f"👑 You are the host of this meeting. Share the Meeting ID: **{room['meeting_id']}** with participants.")
+            st.success(f"👑 You are the **Host** of this meeting. Share Meeting ID: **{room['meeting_id']}** with participants.")
         else:
-            st.info(f"✅ You have joined the meeting as a participant.")
+            st.info(f"✅ You have joined as a **Participant**. The host is {room['host_name']}.")
         
         # Meeting controls
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             if st.button("🎤 Mute", use_container_width=True):
-                st.info("Toggle mute - Feature coming soon!")
+                st.info("🔇 Mute/Unmute feature coming soon!")
         
         with col2:
             if st.button("📹 Video", use_container_width=True):
-                st.info("Toggle video - Feature coming soon!")
+                st.info("📹 Video toggle feature coming soon!")
         
         with col3:
             if st.button("🖥️ Share", use_container_width=True):
-                st.info("Screen sharing - Feature coming soon!")
+                st.info("🖥️ Screen sharing feature coming soon!")
         
         with col4:
             if st.button("💬 Chat", use_container_width=True):
-                st.info("Chat - Feature coming soon!")
+                st.info("💬 Chat feature coming soon!")
         
         with col5:
             if st.button("🚪 Leave", use_container_width=True):
@@ -432,10 +451,11 @@ elif st.session_state.page == 'meeting':
                     <p><strong>Host:</strong> {room['host_name']}</p>
                     <p><strong>Created:</strong> {room['created_at'][:10]}</p>
                     <p><strong>Your Role:</strong> {'👑 Host' if is_host else '👤 Participant'}</p>
+                    <p><strong>Status:</strong> {'🟢 Active' if room['is_active'] else '⚪ Inactive'}</p>
                 </div>
             """, unsafe_allow_html=True)
         
-        # LiveKit connection info
+        # Connection info
         if st.session_state.token:
             st.markdown("---")
             st.markdown("### 🔗 Connection Details")
@@ -447,5 +467,4 @@ Meeting ID: {room['meeting_id']}
 Role: {'Host' if is_host else 'Participant'}
 Participant ID: {st.session_state.participant_id}
 Token: {st.session_state.token[:50]}...
-LiveKit URL: {os.getenv('LIVEKIT_URL', 'Not set')}
                 """, language="text")
