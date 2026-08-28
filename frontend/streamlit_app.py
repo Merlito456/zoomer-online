@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS for professional look
+# Custom CSS
 st.markdown("""
     <style>
         .main-header {
@@ -23,15 +23,8 @@ st.markdown("""
             border-radius: 10px;
             margin-bottom: 2rem;
         }
-        .main-header h1 {
-            font-size: 3rem;
-            margin: 0;
-        }
-        .main-header p {
-            font-size: 1.2rem;
-            opacity: 0.9;
-            margin: 0.5rem 0 0;
-        }
+        .main-header h1 { font-size: 3rem; margin: 0; }
+        .main-header p { font-size: 1.2rem; opacity: 0.9; margin: 0.5rem 0 0; }
         .room-card {
             background: white;
             padding: 1.5rem;
@@ -40,10 +33,7 @@ st.markdown("""
             margin-bottom: 1rem;
             border-left: 4px solid #0066FF;
         }
-        .room-card h3 {
-            margin: 0 0 0.5rem 0;
-            color: #1A1A2E;
-        }
+        .room-card h3 { margin: 0 0 0.5rem 0; color: #1A1A2E; }
         .room-card .meeting-id {
             font-family: monospace;
             background: #f0f2f5;
@@ -59,19 +49,9 @@ st.markdown("""
             font-size: 0.8rem;
             font-weight: 500;
         }
-        .room-card .status.active {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-        .room-card .status.inactive {
-            background: #f5f5f5;
-            color: #757575;
-        }
-        .stButton > button {
-            width: 100%;
-            border-radius: 8px;
-            font-weight: 500;
-        }
+        .room-card .status.active { background: #e8f5e9; color: #2e7d32; }
+        .room-card .status.inactive { background: #f5f5f5; color: #757575; }
+        .stButton > button { width: 100%; border-radius: 8px; font-weight: 500; }
         .participant-info {
             background: #f8f9fa;
             padding: 1rem;
@@ -85,32 +65,8 @@ st.markdown("""
             border-radius: 50%;
             margin-right: 5px;
         }
-        .status-badge.online {
-            background: #4CAF50;
-        }
-        .status-badge.offline {
-            background: #f44336;
-        }
-        .meeting-container {
-            background: #1A1A2E;
-            border-radius: 12px;
-            padding: 2rem;
-            color: white;
-            text-align: center;
-            min-height: 400px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-        .meeting-container h2 {
-            font-size: 2rem;
-            margin-bottom: 1rem;
-        }
-        .meeting-container .info {
-            color: #aaa;
-            font-size: 1rem;
-        }
+        .status-badge.online { background: #4CAF50; }
+        .status-badge.offline { background: #f44336; }
         .host-badge {
             background: #FFD700;
             color: #1A1A2E;
@@ -129,14 +85,54 @@ st.markdown("""
             font-weight: 600;
             margin-left: 0.5rem;
         }
+        .video-container {
+            background: #1A1A2E;
+            border-radius: 12px;
+            padding: 1rem;
+            min-height: 300px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+            align-items: center;
+        }
+        .video-participant {
+            background: #2A2A3A;
+            border-radius: 8px;
+            min-width: 200px;
+            min-height: 150px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            position: relative;
+        }
+        .video-participant video {
+            width: 100%;
+            border-radius: 8px;
+        }
+        .video-participant .participant-name {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            background: rgba(0,0,0,0.7);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+        .video-participant .avatar {
+            font-size: 3rem;
+            font-weight: 600;
+            color: white;
+        }
     </style>
 """, unsafe_allow_html=True)
 
 # Initialize session state
 if 'page' not in st.session_state:
     st.session_state.page = 'dashboard'
-if 'current_meeting' not in st.session_state:
-    st.session_state.current_meeting = None
 if 'participant_id' not in st.session_state:
     st.session_state.participant_id = None
 if 'room_data' not in st.session_state:
@@ -145,6 +141,10 @@ if 'token' not in st.session_state:
     st.session_state.token = None
 if 'is_host' not in st.session_state:
     st.session_state.is_host = False
+if 'livekit_connected' not in st.session_state:
+    st.session_state.livekit_connected = False
+if 'participants' not in st.session_state:
+    st.session_state.participants = []
 
 # Header
 st.markdown("""
@@ -154,7 +154,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Sidebar - Navigation
+# Sidebar
 with st.sidebar:
     st.markdown("### 📋 Navigation")
     
@@ -195,12 +195,10 @@ with st.sidebar:
 
 # Main content
 if st.session_state.page == 'dashboard':
-    # Dashboard View
     st.markdown("## 📊 Your Meetings")
     
     try:
         rooms = get_rooms()
-        
         if rooms:
             for room in rooms:
                 with st.container():
@@ -220,10 +218,6 @@ if st.session_state.page == 'dashboard':
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
-                    
-                    with col2:
-                        st.markdown("")
-                    
                     with col3:
                         if st.button(f"Join {room['meeting_id'][:4]}", key=f"join_{room['id']}"):
                             st.session_state.room_data = room
@@ -232,22 +226,17 @@ if st.session_state.page == 'dashboard':
                             st.rerun()
         else:
             st.info("No meetings created yet. Create a new meeting to get started!")
-            
     except Exception as e:
         st.error(f"Failed to load rooms: {str(e)}")
-        st.info("Make sure the backend server is running.")
 
 elif st.session_state.page == 'create':
-    # Create Meeting View
     st.markdown("## ➕ Create New Meeting")
     
     with st.form("create_meeting_form"):
         col1, col2 = st.columns(2)
-        
         with col1:
             meeting_name = st.text_input("Meeting Name", placeholder="e.g., Team Standup")
             host_name = st.text_input("Your Full Name", placeholder="e.g., John Doe")
-        
         with col2:
             company = st.text_input("Company", placeholder="Your company name")
             position = st.text_input("Position", placeholder="Your position")
@@ -266,7 +255,7 @@ elif st.session_state.page == 'create':
                         st.session_state.participant_id = result['participant_id']
                         st.session_state.is_host = True
                         st.session_state.page = 'meeting'
-                        st.success("Meeting created successfully! You are the host.")
+                        st.success("Meeting created successfully!")
                         st.balloons()
                         time.sleep(1)
                         st.rerun()
@@ -274,11 +263,8 @@ elif st.session_state.page == 'create':
                     st.error(f"Failed to create meeting: {str(e)}")
 
 elif st.session_state.page == 'join':
-    # Join Meeting View
     st.markdown("## 🔗 Join Meeting")
-    
-    meeting_id = st.text_input("Meeting ID", placeholder="e.g., A1B2C3D4", max_chars=8)
-    meeting_id = meeting_id.upper()
+    meeting_id = st.text_input("Meeting ID", placeholder="e.g., A1B2C3D4", max_chars=8).upper()
     
     if st.button("Check Meeting", use_container_width=True):
         if meeting_id:
@@ -290,12 +276,11 @@ elif st.session_state.page == 'join':
                     st.session_state.page = 'join_room'
                     st.rerun()
                 else:
-                    st.error("Meeting not found. Please check the ID.")
+                    st.error("Meeting not found.")
             except Exception as e:
                 st.error(f"Failed to find meeting: {str(e)}")
 
 elif st.session_state.page == 'join_room':
-    # Join Room View (after meeting found)
     room = st.session_state.room_data
     
     st.markdown(f"## 🔗 Join Meeting: {room['name']}")
@@ -316,20 +301,17 @@ elif st.session_state.page == 'join_room':
     """, unsafe_allow_html=True)
     
     if not room['is_active']:
-        st.warning("⏳ This meeting hasn't started yet. You can wait for the host.")
+        st.warning("⏳ This meeting hasn't started yet.")
     
     st.markdown("### Enter your details to join")
     
     with st.form("join_meeting_form"):
         col1, col2 = st.columns(2)
-        
         with col1:
             participant_name = st.text_input("Full Name", placeholder="e.g., Jane Smith")
             participant_company = st.text_input("Company", placeholder="Your company")
-        
         with col2:
             participant_position = st.text_input("Position", placeholder="Your position")
-            st.markdown("")  # Spacer
         
         submit = st.form_submit_button("🎥 Join Meeting", use_container_width=True)
         
@@ -349,7 +331,7 @@ elif st.session_state.page == 'join_room':
                         st.session_state.participant_id = result['participant_id']
                         st.session_state.is_host = False
                         st.session_state.page = 'meeting'
-                        st.success("Connected successfully! You are a participant.")
+                        st.success("Connected successfully!")
                         st.balloons()
                         time.sleep(1)
                         st.rerun()
@@ -357,9 +339,8 @@ elif st.session_state.page == 'join_room':
                     st.error(f"Failed to join meeting: {str(e)}")
 
 elif st.session_state.page == 'meeting':
-    # Meeting View
     if not st.session_state.room_data:
-        st.error("No meeting data found. Please go back to the dashboard.")
+        st.error("No meeting data found.")
         if st.button("Back to Dashboard"):
             st.session_state.page = 'dashboard'
             st.rerun()
@@ -367,7 +348,6 @@ elif st.session_state.page == 'meeting':
         room = st.session_state.room_data
         is_host = st.session_state.is_host
         
-        # Role badge
         role_badge = '<span class="host-badge">👑 Host</span>' if is_host else '<span class="participant-badge">👤 Participant</span>'
         
         st.markdown(f"""
@@ -380,11 +360,29 @@ elif st.session_state.page == 'meeting':
             </div>
         """, unsafe_allow_html=True)
         
-        # Show role-specific message
-        if is_host:
-            st.success(f"👑 You are the **Host** of this meeting. Share Meeting ID: **{room['meeting_id']}** with participants.")
-        else:
-            st.info(f"✅ You have joined as a **Participant**. The host is {room['host_name']}.")
+        # Video container
+        st.markdown("### 📹 Video Feed")
+        st.markdown("""
+            <div class="video-container" id="videoContainer">
+                <div class="video-participant">
+                    <div class="avatar">👤</div>
+                    <div class="participant-name">You (Connecting...)</div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # LiveKit connection status
+        if st.session_state.token:
+            st.success(f"🔐 Connected to media server (Token: {st.session_state.token[:20]}...)")
+            
+            # Show connection info
+            with st.expander("🔍 Media Server Details"):
+                st.code(f"""
+Meeting ID: {room['meeting_id']}
+Role: {'Host' if is_host else 'Participant'}
+Participant ID: {st.session_state.participant_id}
+LiveKit URL: {st.session_state.room_data.get('livekit_url', 'Not set')}
+                """, language="text")
         
         # Meeting controls
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -407,7 +405,6 @@ elif st.session_state.page == 'meeting':
         
         with col5:
             if st.button("🚪 Leave", use_container_width=True):
-                # Reset everything
                 st.session_state.page = 'dashboard'
                 st.session_state.room_data = None
                 st.session_state.token = None
@@ -417,7 +414,6 @@ elif st.session_state.page == 'meeting':
         
         # Meeting info
         st.markdown("---")
-        
         col1, col2 = st.columns(2)
         
         with col1:
@@ -451,20 +447,19 @@ elif st.session_state.page == 'meeting':
                     <p><strong>Host:</strong> {room['host_name']}</p>
                     <p><strong>Created:</strong> {room['created_at'][:10]}</p>
                     <p><strong>Your Role:</strong> {'👑 Host' if is_host else '👤 Participant'}</p>
-                    <p><strong>Status:</strong> {'🟢 Active' if room['is_active'] else '⚪ Inactive'}</p>
                 </div>
             """, unsafe_allow_html=True)
-        
-        # Connection info
-        if st.session_state.token:
-            st.markdown("---")
-            st.markdown("### 🔗 Connection Details")
-            st.success("🔐 Securely connected to media server")
-            
-            with st.expander("🔍 Technical Details"):
-                st.code(f"""
-Meeting ID: {room['meeting_id']}
-Role: {'Host' if is_host else 'Participant'}
-Participant ID: {st.session_state.participant_id}
-Token: {st.session_state.token[:50]}...
-                """, language="text")
+
+# Custom JavaScript to load LiveKit SDK
+st.markdown("""
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@latest/dist/livekit-client.umd.min.js">
+</script>
+<script>
+    console.log('LiveKit SDK loaded');
+</script>
+""", unsafe_allow_html=True)
+
+# Auto-refresh participants every 5 seconds
+if st.session_state.page == 'meeting' and st.session_state.room_data:
+    time.sleep(5)
+    st.rerun()
