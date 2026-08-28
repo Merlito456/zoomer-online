@@ -98,20 +98,6 @@ st.markdown("""
         .status-badge.online { background: #4CAF50; }
         .status-badge.offline { background: #f44336; }
         
-        .meeting-controls {
-            display: flex;
-            gap: 0.8rem;
-            justify-content: center;
-            flex-wrap: wrap;
-            padding: 1rem 0;
-        }
-        .meeting-controls .stButton button {
-            min-width: 100px;
-            padding: 0.7rem 1.5rem;
-            border-radius: 50px;
-            font-size: 0.9rem;
-        }
-        
         .video-container {
             background: #1A1A2E;
             border-radius: 12px;
@@ -121,6 +107,8 @@ st.markdown("""
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-wrap: wrap;
+            gap: 1rem;
         }
         .video-container .placeholder {
             color: white;
@@ -164,16 +152,75 @@ st.markdown("""
         .info-box p { margin: 0.3rem 0; }
         .info-box .label { font-weight: 600; color: #1A1A2E; }
         
-        .listen-mode {
-            background: #e3f2fd;
-            border: 2px solid #0B5CFF;
+        .device-selector {
+            background: #f0f4ff;
+            border: 1px solid #0B5CFF;
             border-radius: 12px;
             padding: 1.5rem;
-            text-align: center;
             margin: 1rem 0;
         }
-        .listen-mode h3 { color: #0B5CFF; margin: 0; }
-        .listen-mode p { color: #1A1A2E; margin: 0.5rem 0 0; }
+        .device-selector h4 { color: #0B5CFF; margin: 0 0 1rem 0; }
+        .device-selector .device-row {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .device-selector .device-row label {
+            font-weight: 500;
+            min-width: 80px;
+        }
+        
+        .join-options {
+            background: #e8f5e9;
+            border: 1px solid #4CAF50;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+        }
+        .join-options h4 { color: #2e7d32; margin: 0 0 1rem 0; }
+        
+        .video-participant {
+            background: #2A2A3A;
+            border-radius: 8px;
+            min-width: 200px;
+            min-height: 150px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            position: relative;
+        }
+        .video-participant video {
+            width: 100%;
+            border-radius: 8px;
+        }
+        .video-participant .participant-name {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            background: rgba(0,0,0,0.7);
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+        .video-participant .avatar {
+            font-size: 3rem;
+            font-weight: 600;
+            color: white;
+        }
+        
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-dot.on { background: #4CAF50; }
+        .status-dot.off { background: #f44336; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -191,15 +238,19 @@ if 'is_host' not in st.session_state:
 if 'muted' not in st.session_state:
     st.session_state.muted = False
 if 'video_off' not in st.session_state:
-    st.session_state.video_off = True  # Default: video off
+    st.session_state.video_off = True
 if 'screen_sharing' not in st.session_state:
     st.session_state.screen_sharing = False
 if 'chat_open' not in st.session_state:
     st.session_state.chat_open = False
 if 'listen_only' not in st.session_state:
-    st.session_state.listen_only = True  # Default: listen only
+    st.session_state.listen_only = True
 if 'webrtc_started' not in st.session_state:
     st.session_state.webrtc_started = False
+if 'camera_enabled' not in st.session_state:
+    st.session_state.camera_enabled = False
+if 'mic_enabled' not in st.session_state:
+    st.session_state.mic_enabled = False
 
 # Header
 st.markdown("""
@@ -369,8 +420,19 @@ elif st.session_state.page == 'join_room':
         with col2:
             participant_position = st.text_input("Position", placeholder="Your position")
         
-        # Listen Only option
-        listen_only = st.checkbox("🔊 Listen Only (no camera/mic required)", value=True)
+        st.markdown("---")
+        st.markdown("### 🎥 Choose how to join")
+        
+        # Device selection like Zoom
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            camera_enabled = st.checkbox("📹 Camera", value=False)
+        with col2:
+            mic_enabled = st.checkbox("🎤 Microphone", value=False)
+        with col3:
+            listen_only = st.checkbox("🔊 Listen Only", value=True)
+        
+        st.info("💡 You can join without camera or microphone - just like Zoom!")
         
         submit = st.form_submit_button("🎥 Join Meeting", use_container_width=True)
         
@@ -389,8 +451,11 @@ elif st.session_state.page == 'join_room':
                         st.session_state.token = result['token']
                         st.session_state.participant_id = result['participant_id']
                         st.session_state.is_host = False
+                        st.session_state.camera_enabled = camera_enabled
+                        st.session_state.mic_enabled = mic_enabled
                         st.session_state.listen_only = listen_only
-                        st.session_state.video_off = True  # Start with video off
+                        st.session_state.video_off = not camera_enabled
+                        st.session_state.muted = not mic_enabled
                         st.session_state.page = 'meeting'
                         st.success("Connected successfully!")
                         st.balloons()
@@ -413,13 +478,25 @@ elif st.session_state.page == 'meeting':
         role_text = "Host" if is_host else "Participant"
         role_class = "host" if is_host else "participant"
         
+        # Device status
+        camera_status = "📹 On" if st.session_state.camera_enabled else "📹 Off"
+        mic_status = "🎤 On" if st.session_state.mic_enabled else "🎤 Off"
+        
         st.markdown(f"""
             <div class="meeting-header">
-                <div style="display: flex; align-items: center; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
                     <h2>🎥 {room['name']}</h2>
                     <span class="badge {role_class}">{role_text}</span>
+                    <span style="font-size: 0.8rem; color: #666;">
+                        <span class="status-dot {'on' if st.session_state.camera_enabled else 'off'}"></span>
+                        Camera: {camera_status}
+                    </span>
+                    <span style="font-size: 0.8rem; color: #666;">
+                        <span class="status-dot {'on' if st.session_state.mic_enabled else 'off'}"></span>
+                        Mic: {mic_status}
+                    </span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 1rem;">
+                <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
                     <span class="meeting-id">ID: {room['meeting_id']}</span>
                     <span class="status active">🟢 Live</span>
                 </div>
@@ -438,8 +515,10 @@ elif st.session_state.page == 'meeting':
         # Video Call Section
         st.markdown("### 📹 Video Call")
         
-        # Only start WebRTC if not in listen-only mode and user wants video
-        if not st.session_state.listen_only:
+        # Determine if we should try WebRTC
+        use_webrtc = st.session_state.camera_enabled or st.session_state.mic_enabled
+        
+        if use_webrtc:
             try:
                 ctx = webrtc_streamer(
                     key="meeting",
@@ -451,18 +530,21 @@ elif st.session_state.page == 'meeting':
                     },
                     video_processor_factory=VideoProcessorBase,
                     media_stream_constraints={
-                        "video": not st.session_state.video_off,
-                        "audio": not st.session_state.muted
+                        "video": st.session_state.camera_enabled,
+                        "audio": st.session_state.mic_enabled
                     },
                 )
                 
                 if ctx.state.playing:
-                    st.success("✅ Camera and microphone are active")
+                    st.success(f"✅ Connected - Camera: {'On' if st.session_state.camera_enabled else 'Off'}, Mic: {'On' if st.session_state.mic_enabled else 'Off'}")
                 else:
                     st.info("📹 Click 'Start' to begin video call")
             except Exception as e:
-                st.warning(f"⚠️ Camera/Mic not available: {str(e)}")
+                st.warning(f"⚠️ Could not access camera/mic: {str(e)}")
                 st.info("💡 You can still participate in listen-only mode.")
+                # Fallback to listen-only
+                st.session_state.listen_only = True
+                st.rerun()
         else:
             # Listen Only Mode - Show placeholder
             st.markdown("""
@@ -475,33 +557,41 @@ elif st.session_state.page == 'meeting':
                 </div>
             """, unsafe_allow_html=True)
             
-            # Option to switch modes
-            if st.button("🎥 Enable Camera & Mic", use_container_width=True):
-                st.session_state.listen_only = False
-                st.rerun()
+            # Option to enable devices
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🎥 Enable Camera", use_container_width=True):
+                    st.session_state.camera_enabled = True
+                    st.session_state.listen_only = False
+                    st.rerun()
+            with col2:
+                if st.button("🎤 Enable Microphone", use_container_width=True):
+                    st.session_state.mic_enabled = True
+                    st.session_state.listen_only = False
+                    st.rerun()
         
-        # Meeting Controls - Zoom-like
+        # Meeting Controls
         st.markdown("### 🎮 Meeting Controls")
         
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         
         with col1:
-            if st.session_state.listen_only:
-                st.button("🔇 Mute", use_container_width=True, disabled=True)
-            else:
+            if st.session_state.mic_enabled:
                 mute_label = "🔊 Unmute" if st.session_state.muted else "🔇 Mute"
                 if st.button(mute_label, use_container_width=True):
                     st.session_state.muted = not st.session_state.muted
                     st.rerun()
+            else:
+                st.button("🎤 Mic Off", use_container_width=True, disabled=True)
         
         with col2:
-            if st.session_state.listen_only:
-                st.button("📹 Video", use_container_width=True, disabled=True)
-            else:
+            if st.session_state.camera_enabled:
                 video_label = "📹 Video On" if st.session_state.video_off else "📹 Video Off"
                 if st.button(video_label, use_container_width=True):
                     st.session_state.video_off = not st.session_state.video_off
                     st.rerun()
+            else:
+                st.button("📹 Camera Off", use_container_width=True, disabled=True)
         
         with col3:
             if st.button("🖥️ Share", use_container_width=True):
@@ -515,15 +605,9 @@ elif st.session_state.page == 'meeting':
                 st.rerun()
         
         with col5:
-            # Listen Only toggle - Zoom-like feature
-            if st.session_state.listen_only:
-                if st.button("🎥 Join Video", use_container_width=True):
-                    st.session_state.listen_only = False
-                    st.rerun()
-            else:
-                if st.button("🔊 Listen Only", use_container_width=True):
-                    st.session_state.listen_only = True
-                    st.rerun()
+            # Quick device toggle
+            if st.button("🎛️ Devices", use_container_width=True):
+                st.info("Device settings - coming soon!")
         
         with col6:
             if st.button("🚪 Leave", use_container_width=True):
@@ -536,6 +620,8 @@ elif st.session_state.page == 'meeting':
                 st.session_state.video_off = True
                 st.session_state.screen_sharing = False
                 st.session_state.listen_only = True
+                st.session_state.camera_enabled = False
+                st.session_state.mic_enabled = False
                 st.rerun()
         
         # Chat panel
@@ -583,6 +669,8 @@ elif st.session_state.page == 'meeting':
                     <p><span class="label">Created:</span> {room['created_at'][:10]}</p>
                     <p><span class="label">Your Role:</span> {'👑 Host' if is_host else '👤 Participant'}</p>
                     <p><span class="label">Status:</span> {'🟢 Active' if room['is_active'] else '⚪ Inactive'}</p>
+                    <p><span class="label">Camera:</span> {'📹 On' if st.session_state.camera_enabled else '📹 Off'}</p>
+                    <p><span class="label">Microphone:</span> {'🎤 On' if st.session_state.mic_enabled else '🎤 Off'}</p>
                     <p><span class="label">Mode:</span> {'🔊 Listen Only' if st.session_state.listen_only else '🎥 Full Video'}</p>
                 </div>
             """, unsafe_allow_html=True)
@@ -593,6 +681,8 @@ elif st.session_state.page == 'meeting':
                 st.code(f"""
 Meeting ID: {room['meeting_id']}
 Role: {'Host' if is_host else 'Participant'}
+Camera: {'On' if st.session_state.camera_enabled else 'Off'}
+Microphone: {'On' if st.session_state.mic_enabled else 'Off'}
 Mode: {'Listen Only' if st.session_state.listen_only else 'Full Video'}
 Participant ID: {st.session_state.participant_id}
 Token: {st.session_state.token[:50]}...
