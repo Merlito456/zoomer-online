@@ -1,56 +1,88 @@
-from fastapi import APIRouter, HTTPException, Request
-from typing import List
-import uuid
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import os
-from datetime import datetime
+from dotenv import load_dotenv
 
+# Import the router from rooms.py
+from .rooms import router as rooms_router
 from .database import db
-from .models import ParticipantRole
-from .livekit_service import LiveKitService
 
-router = APIRouter()
-livekit = LiveKitService()
+# Load environment variables
+load_dotenv()
 
-@router.post("/api/rooms/create")
-async def create_room(request: Request):
+# Create the FastAPI app - this MUST be named "app"
+app = FastAPI(
+    title="Zoom Clone API",
+    description="Backend API for Zoom Clone",
+    version="1.0.0"
+)
+
+# CORS configuration
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8501,https://your-streamlit-app.streamlit.app").split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include the router - this registers all /api/rooms routes
+app.include_router(rooms_router)
+
+# Root endpoint
+@app.get("/")
+async def root():
+    return {
+        "message": "Zoom Clone API",
+        "version": "1.0.0",
+        "status": "running",
+        "environment": os.getenv("ENVIRONMENT", "development")
+    }
+
+# Health check endpoint
+@app.get("/api/health")
+async def health_check():
     try:
-        data = await request.json()
-        name = data.get("name", "Meeting")
-        host_name = data.get("host_name", "Host")
-        host_email = data.get("host_email")
-        host_id = str(uuid.uuid4())
-        
-        room = db.create_room(name, host_id, host_name, host_email)
-        
-        if not room:
-            raise HTTPException(status_code=500, detail="Failed to create room")
-        
-        # Add host as participant
-        db.add_participant(
-            room_id=room["id"],
-            name=host_name,
-            company=data.get("company", ""),
-            position=data.get("position", ""),
-            role=ParticipantRole.HOST,
-            email=host_email
-        )
-        
-        # Generate token for host
-        token = livekit.generate_token(
-            room_name=room["meeting_id"],
-            identity=host_id,
-            name=host_name,
-            metadata={"role": "host", "email": host_email or ""}
-        )
-        
+        rooms = db.get_all_rooms()
         return {
-            "room": room,
-            "token": token,
-            "participant_id": host_id,
-            "livekit_url": os.getenv("LIVEKIT_URL", "ws://localhost:7880")
+            "status": "healthy",
+            "rooms_count": len(rooms),
+            "database": "connected"
         }
     except Exception as e:
-        print(f"Error creating room: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
 
-# ... rest of your routes
+# Stats endpoint
+@app.get("/api/stats")
+async def get_stats():
+    rooms = db.get_all_rooms()
+    active_rooms = [r for r in rooms if r.get("is_active")]
+    
+    return {
+        "total_rooms": len(rooms),
+        "active_rooms": len(active_rooms),
+        "total_participants": sum(len(db.get_participants(r["id"])) for r in active_rooms)
+    }
+
+# Test endpoint
+@app.get("/api/test")
+async def test():
+    """Test endpoint to verify everything is working"""
+    return {
+        "status": "success",
+        "message": "API is working!",
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "livekit_url": os.getenv("LIVEKIT_URL", "not set")
+    }
+
+# For running locally
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
